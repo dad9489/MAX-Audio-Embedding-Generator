@@ -19,6 +19,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.exceptions import BadRequest
 from maxfw.core import MAX_API, PredictAPI
 from core.model import ModelWrapper
+import os
 
 
 # set up parser for audio input data
@@ -44,12 +45,30 @@ class ModelPredictAPI(PredictAPI):
 
         args = input_parser.parse_args()
 
-        if not re.match("audio/.*wav", str(args['audio'].mimetype)):
+        # if not re.match("audio/.*wav", str(args['audio'].mimetype)):
+        #     e = BadRequest()
+        #     e.data = {'status': 'error', 'message': f'Invalid file type/extension: {str(args["audio"].mimetype)}'}
+        #     raise e
+
+        audio_data = args['audio'].read()
+
+        if '.mp3' in str(args['audio']):
+            file = open("/audio.mp3", "wb+")
+            file.write(audio_data)
+            file.close()
+            os.system("ffmpeg -i /audio.mp3 /audio.wav")
+            os.remove("/audio.mp3")
+        elif '.wav' in str(args['audio']):
+            file = open("/audio.wav", "wb+")
+            file.write(audio_data)
+            file.close()
+        else:
             e = BadRequest()
             e.data = {'status': 'error', 'message': 'Invalid file type/extension'}
             raise e
 
-        audio_data = args['audio'].read()
+        audio_data = open("/audio.wav", "rb").read()
+        os.remove("/audio.wav")
 
         # Getting the predictions
         preds = self.model_wrapper.predict(audio_data)
