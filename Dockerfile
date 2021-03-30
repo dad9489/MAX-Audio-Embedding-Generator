@@ -31,4 +31,6 @@ RUN sha512sum -c sha512sums.txt
 
 EXPOSE 5000
 
+USER root
+
 CMD python app.py
