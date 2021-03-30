@@ -26,11 +26,13 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
+USER root
+
 # check file integrity
-RUN sha512sum -c sha512sums.txt
+# RUN sha512sum -c sha512sums.txt
+
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 5000
-
-USER root
 
 CMD python app.py

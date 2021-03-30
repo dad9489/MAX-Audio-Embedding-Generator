@@ -20,13 +20,15 @@ from werkzeug.exceptions import BadRequest
 from maxfw.core import MAX_API, PredictAPI
 from core.model import ModelWrapper
 import os
+import urllib.request, urllib.parse, urllib.error
 
 
 # set up parser for audio input data
 input_parser = MAX_API.parser()
-input_parser.add_argument('audio', type=FileStorage, location='files', required=True,
+input_parser.add_argument('audio', type=FileStorage, location='files', required=False,
                           help="signed 16-bit PCM WAV audio file")
-
+input_parser.add_argument('url', type=str, required=False,
+                          help="URL of an audio file")
 predict_response = MAX_API.model('ModelPredictResponse', {
     'status': fields.String(required=True, description='Response status message'),
     'embedding': fields.List(fields.List(fields.Float, required=True, description="Generated embedding"))
@@ -50,15 +52,25 @@ class ModelPredictAPI(PredictAPI):
         #     e.data = {'status': 'error', 'message': f'Invalid file type/extension: {str(args["audio"].mimetype)}'}
         #     raise e
 
-        audio_data = args['audio'].read()
+        if args['audio'] is None and args['url'] is None:
+            e = BadRequest()
+            e.data = {'status': 'error', 'message': 'Need to provide either an audio or url argument'}
+            raise e
 
-        if '.mp3' in str(args['audio']):
+        if args['url'] is not None:
+            audio_data = urllib.request.urlopen(args['url']).read()
+            filestring = str(args['url'])
+        else:
+            audio_data = args['audio'].read()
+            filestring = str(args['audio'])
+
+        if 'mp3' in filestring:
             file = open("/audio.mp3", "wb+")
             file.write(audio_data)
             file.close()
             os.system("ffmpeg -i /audio.mp3 /audio.wav")
             os.remove("/audio.mp3")
-        elif '.wav' in str(args['audio']):
+        elif 'wav' in filestring:
             file = open("/audio.wav", "wb+")
             file.write(audio_data)
             file.close()
