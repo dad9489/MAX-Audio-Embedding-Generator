@@ -94,12 +94,13 @@ class ModelPredictAPI(PredictAPI):
         start = time.time()
 
         # start all programs
-        commands = [f"ffmpeg -i /{uuid_map[x]}.mp3 /{uuid_map[x]}.wav" for x in uuid_map.keys()]
+        commands = [f"ffmpeg -i /{uuid_map[x]}.mp3 /{uuid_map[x]}.wav" if 'mp3' in x else "" for x in uuid_map.keys()]
 
         threads = []
         for command in commands:
-            print(f" Running command: {command}")
-            threads.append(threading.Thread(target=run_sys, args=(command,)))
+            if command != "":
+                print(f" Running command: {command}")
+                threads.append(threading.Thread(target=run_sys, args=(command,)))
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -111,7 +112,8 @@ class ModelPredictAPI(PredictAPI):
         for filestring in uuid_map.keys():
             audio_data[filestring] = open(f"/{uuid_map[filestring]}.wav", "rb").read()
             os.remove(f"/{uuid_map[filestring]}.wav")
-            os.remove(f"/{uuid_map[filestring]}.mp3")
+            if 'mp3' in filestring:
+                os.remove(f"/{uuid_map[filestring]}.mp3")
         print(f'Deleted files in {time.time() - start}s')
 
         # Getting the predictions
