@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-import re
 from flask_restplus import fields
 from werkzeug.datastructures import FileStorage
 from werkzeug.exceptions import BadRequest
@@ -21,6 +20,9 @@ from maxfw.core import MAX_API, PredictAPI
 from core.model import ModelWrapper
 import os
 import urllib.request, urllib.parse, urllib.error
+import uuid
+import time
+import threading
 
 
 # set up parser for audio input data
@@ -31,8 +33,16 @@ input_parser.add_argument('url', type=str, required=False,
                           help="URL of an audio file")
 predict_response = MAX_API.model('ModelPredictResponse', {
     'status': fields.String(required=True, description='Response status message'),
-    'embedding': fields.List(fields.List(fields.Float, required=True, description="Generated embedding"))
+    'embedding': fields.List(fields.List(fields.List(fields.Float, required=True, description="Generated embedding")))
 })
+
+
+def run_sys(x):
+    os.system(x)
+
+
+def run_model(func, data, res):
+    res.append(func(data).tolist())
 
 
 class ModelPredictAPI(PredictAPI):
@@ -45,48 +55,80 @@ class ModelPredictAPI(PredictAPI):
         """Generate audio embedding from input data"""
         result = {'status': 'error'}
 
-        args = input_parser.parse_args()
+        true_start = time.time()
 
-        # if not re.match("audio/.*wav", str(args['audio'].mimetype)):
-        #     e = BadRequest()
-        #     e.data = {'status': 'error', 'message': f'Invalid file type/extension: {str(args["audio"].mimetype)}'}
-        #     raise e
+        args = input_parser.parse_args()
 
         if args['audio'] is None and args['url'] is None:
             e = BadRequest()
             e.data = {'status': 'error', 'message': 'Need to provide either an audio or url argument'}
             raise e
 
+        audio_data = {}
+        uuid_map = {}
         if args['url'] is not None:
-            audio_data = urllib.request.urlopen(args['url']).read()
-            filestring = str(args['url'])
+            url_splt = args['url'].split(',')
+            for url in url_splt:
+                audio_data[url] = urllib.request.urlopen(args['url']).read()
         else:
-            audio_data = args['audio'].read()
-            filestring = str(args['audio'])
+            audio_data[args['audio'].filename] = args['audio'].read()
 
-        if 'mp3' in filestring:
-            file = open("/audio.mp3", "wb+")
-            file.write(audio_data)
-            file.close()
-            os.system("ffmpeg -i /audio.mp3 /audio.wav")
-            os.remove("/audio.mp3")
-        elif 'wav' in filestring:
-            file = open("/audio.wav", "wb+")
-            file.write(audio_data)
-            file.close()
-        else:
-            e = BadRequest()
-            e.data = {'status': 'error', 'message': 'Invalid file type/extension'}
-            raise e
+        print(f"audio_data: {audio_data.keys()}")
+        for filestring in audio_data.keys():
+            uuid_map[filestring] = uuid.uuid1()
+            if 'mp3' in filestring:
+                print(f"Creating file: /{uuid_map[filestring]}.mp3")
+                file = open(f"/{uuid_map[filestring]}.mp3", "wb+")
+                file.write(audio_data[filestring])
+                file.close()
+            elif 'wav' in filestring:
+                print(f"Creating file: /{uuid_map[filestring]}.wav")
+                file = open(f"/{uuid_map[filestring]}.wav", "wb+")
+                file.write(audio_data[filestring])
+                file.close()
+            else:
+                e = BadRequest()
+                e.data = {'status': 'error', 'message': 'Invalid file type/extension'}
+                raise e
 
-        audio_data = open("/audio.wav", "rb").read()
-        os.remove("/audio.wav")
+        start = time.time()
+
+        # start all programs
+        commands = [f"ffmpeg -i /{uuid_map[x]}.mp3 /{uuid_map[x]}.wav" for x in uuid_map.keys()]
+
+        threads = []
+        for command in commands:
+            print(f" Running command: {command}")
+            threads.append(threading.Thread(target=run_sys, args=(command,)))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        print(f'Converted mp3 files in {time.time() - start}s')
+
+        start = time.time()
+        for filestring in uuid_map.keys():
+            audio_data[filestring] = open(f"/{uuid_map[filestring]}.wav", "rb").read()
+            os.remove(f"/{uuid_map[filestring]}.wav")
+            os.remove(f"/{uuid_map[filestring]}.mp3")
+        print(f'Deleted files in {time.time() - start}s')
 
         # Getting the predictions
-        preds = self.model_wrapper.predict(audio_data)
-
+        preds = []
+        threads = []
+        for filestring in audio_data.keys():
+            res = []
+            threads.append(threading.Thread(target=run_model, args=(self.model_wrapper.predict, audio_data[filestring], res)))
+            preds.append(res)
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        preds = [x[0] for x in preds]
         # Aligning the predictions to the required API format
-        result['embedding'] = preds.tolist()
+        result['embedding'] = preds
         result['status'] = 'ok'
 
+        print(f'Completed processing in {time.time() - true_start}s')
         return result
