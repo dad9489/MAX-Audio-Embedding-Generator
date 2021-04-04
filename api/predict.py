@@ -33,7 +33,7 @@ input_parser.add_argument('url', type=str, required=False,
                           help="URL of an audio file")
 predict_response = MAX_API.model('ModelPredictResponse', {
     'status': fields.String(required=True, description='Response status message'),
-    'embedding': fields.List(fields.List(fields.List(fields.Float, required=True, description="Generated embedding")))
+    'embedding': fields.Nested(fields.List(fields.List(fields.Float, required=True, description="Generated embedding")))
 })
 
 
@@ -41,8 +41,8 @@ def run_sys(x):
     os.system(x)
 
 
-def run_model(func, data, res):
-    res.append(func(data).tolist())
+def run_model(func, name, data, res):
+    res[name] = func(data).tolist()
 
 
 class ModelPredictAPI(PredictAPI):
@@ -50,7 +50,7 @@ class ModelPredictAPI(PredictAPI):
 
     @MAX_API.doc('predict')
     @MAX_API.expect(input_parser)
-    @MAX_API.marshal_with(predict_response)
+    # @MAX_API.marshal_with(predict_response)  TODO fix this
     def post(self):
         """Generate audio embedding from input data"""
         result = {'status': 'error'}
@@ -69,7 +69,7 @@ class ModelPredictAPI(PredictAPI):
         if args['url'] is not None:
             url_splt = args['url'].split(',')
             for url in url_splt:
-                audio_data[url] = urllib.request.urlopen(args['url']).read()
+                audio_data[url] = urllib.request.urlopen(url).read()
         else:
             audio_data[args['audio'].filename] = args['audio'].read()
 
@@ -93,9 +93,7 @@ class ModelPredictAPI(PredictAPI):
 
         start = time.time()
 
-        # start all programs
         commands = [f"ffmpeg -i /{uuid_map[x]}.mp3 /{uuid_map[x]}.wav" if 'mp3' in x else "" for x in uuid_map.keys()]
-
         threads = []
         for command in commands:
             if command != "":
@@ -117,19 +115,17 @@ class ModelPredictAPI(PredictAPI):
         print(f'Deleted files in {time.time() - start}s')
 
         # Getting the predictions
-        preds = []
+        res = {}
         threads = []
         for filestring in audio_data.keys():
-            res = []
-            threads.append(threading.Thread(target=run_model, args=(self.model_wrapper.predict, audio_data[filestring], res)))
-            preds.append(res)
+            threads.append(threading.Thread(target=run_model, args=(self.model_wrapper.predict, filestring, audio_data[filestring], res)))
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join()
-        preds = [x[0] for x in preds]
+
         # Aligning the predictions to the required API format
-        result['embedding'] = preds
+        result['embedding'] = res
         result['status'] = 'ok'
 
         print(f'Completed processing in {time.time() - true_start}s')
